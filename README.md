@@ -1,1 +1,23 @@
 # Transformer
+## Environment
+
+```bash
+pip install -U torch numpy tiktoken
+```
+
+wandb is used to record the training process(optional)：
+
+```bash
+pip install wandb
+```
+
+wandb (Weights & Bias) is the most versatile library for model training monitoring. It can help you record the metrics, hyperparameters, model structure, model files, etc. during model training. You can register an account on [official website](https://wandb.ai/), and then add the following code to your code to start recording the training process.
+```
+
+## Catalogs
+
+- `data/`: Houses the sample dataset used for training
+- `model/`: the model that will be trained
+- model.py: Transformer model logic code
+- train.py: training code
+- inference.py: inference code
