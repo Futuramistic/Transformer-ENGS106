@@ -22,6 +22,20 @@ wandb (Weights & Bias) is the most versatile library for model training monitori
 2. Run model.py
  The model will start training on the dataset. Training & validation `losses` will be printed on the console screen, something like:
 
+```bash
+Step: 0 Training Loss: 11.68 Validation Loss: 11.681
+Step: 20 Training Loss: 10.322 Validation Loss: 10.287
+Step: 40 Training Loss: 8.689 Validation Loss: 8.783
+Step: 60 Training Loss: 7.198 Validation Loss: 7.617
+Step: 80 Training Loss: 6.795 Validation Loss: 7.353
+Step: 100 Training Loss: 6.598 Validation Loss: 6.789
+...
+```
+
+The training loss will decrease as the training goes on.  The model will be saved under name `model-ckpt.pt`. 
+
+Feel free to change some of the hyperparameters on the top of the `model.py` file, and see how it affects the training process.
+
 ## Catalogs
 
 - `data/`: Houses the sample dataset used for training
