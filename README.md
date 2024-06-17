@@ -24,12 +24,12 @@ wandb (Weights & Bias) is the most versatile library for model training monitori
  The model will start training on the dataset. Training & validation `losses` will be printed on the console screen, something like:
 
 ```bash
-Step: 0 Training Loss: 11.68 Validation Loss: 11.681
-Step: 20 Training Loss: 10.322 Validation Loss: 10.287
-Step: 40 Training Loss: 8.689 Validation Loss: 8.783
-Step: 60 Training Loss: 7.198 Validation Loss: 7.617
-Step: 80 Training Loss: 6.795 Validation Loss: 7.353
-Step: 100 Training Loss: 6.598 Validation Loss: 6.789
+Step: 0 Training Loss: 11.594 Validation Loss: 11.575
+Step: 50 Training Loss: 2.617 Validation Loss: 2.116
+Step: 100 Training Loss: 2.137 Validation Loss: 2.078
+Step: 150 Training Loss: 2.227 Validation Loss: 2.081
+Step: 200 Training Loss: 2.076 Validation Loss: 1.897
+Step: 250 Training Loss: 1.682 Validation Loss: 1.844
 ...
 ```
 
