@@ -1,4 +1,5 @@
 # Transformer
+This demo showcases training a Transformer-based Large Language Model (LLM). Inspired by [nanoGPT](https://github.com/karpathy/nanoGPT), it is designed to be simple and easy to understand, making it an excellent starting point for beginners learning how to train an LLM from scratch using PyTorch.
 ## Environment
 
 ```bash
