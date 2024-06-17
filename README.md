@@ -3,7 +3,7 @@ This demo showcases training a **Transformer** based **Large Language Model (LLM
 
 Inspired by [nanoGPT](https://github.com/karpathy/nanoGPT), it is designed to be simple and easy to understand, making it an excellent starting point for beginners learning how to train an LLM from scratch using PyTorch.
 
-The demo is trained on a 11.7 kB [hardware_prices](https://huggingface.co/datasets/Astrale0031/hardware_prices/raw/main/hardware_prices.csv)dataset, nd the model size is about 1.10 GB. I trained on a single NVIDIA GeForce RTX 4090 GPU, and the training time takes about 2 hours, result in approximately 296,291,530 parameters.
+The demo is trained on a 11.7 kB [hardware_prices](https://huggingface.co/datasets/Astrale0031/hardware_prices/raw/main/hardware_prices.csv) dataset, nd the model size is about 1.10 GB. I trained on a single NVIDIA GeForce RTX 4090 GPU, and the training time takes about 2 hours, result in approximately 296,291,530 parameters.
 
 
 ## Install and start
