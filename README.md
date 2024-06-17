@@ -19,6 +19,9 @@ pip install wandb
 
 wandb (Weights & Bias) is the most versatile library for model training monitoring. It can help you record the metrics, hyperparameters, model structure, model files, etc. during model training. You can register an account on [official website](https://wandb.ai/), and then add the following code to your code to start recording the training process.
 
+2. Run model.py
+ The model will start training on the dataset. Training & validation 'losses' will be printed on the console screen, something like:
+
 ## Catalogs
 
 - `data/`: Houses the sample dataset used for training
