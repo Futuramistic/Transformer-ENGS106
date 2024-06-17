@@ -6,7 +6,7 @@ Inspired by [nanoGPT](https://github.com/karpathy/nanoGPT), it is designed to be
 The demo is trained on
 
 ## Install and start
-
+1. Install dependencies
 ```bash
 pip install -U torch numpy tiktoken
 ```
