@@ -19,7 +19,8 @@ pip install wandb
 
 wandb (Weights & Bias) is the most versatile library for model training monitoring. It can help you record the metrics, hyperparameters, model structure, model files, etc. during model training. You can register an account on [official website](https://wandb.ai/), and then add the following code to your code to start recording the training process.
 
-2. Run model.py
+2. Run train.py
+
  The model will start training on the dataset. Training & validation `losses` will be printed on the console screen, something like:
 
 ```bash
@@ -34,7 +35,7 @@ Step: 100 Training Loss: 6.598 Validation Loss: 6.789
 
 The training loss will decrease as the training goes on.  The model will be saved under name `model-ckpt.pt`. 
 
-Feel free to change some of the hyperparameters on the top of the `model.py` file, and see how it affects the training process.
+Feel free to change some of the hyperparameters on the top of the `train.py` file, and see how it affects the training process.
 
 ## Catalogs
 
