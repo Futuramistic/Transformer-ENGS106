@@ -25,6 +25,6 @@ wandb (Weights & Bias) is the most versatile library for model training monitori
 - inference.py: inference code
 
 ## References
--[Attention Is All You Need](https://arxiv.org/abs/1706.03762)The original paper of Transformer architecture.
-+[nanoGPT](https://github.com/karpathy/nanoGPT)Andrej Karpathy's famous video tutorial on how to build a GPT model from scratch.
-*[Transformers from Scratch](https://blog.matdmiller.com/posts/2023-06-10_transformers/notebook.html)A clear and easy implementation of Andrej's video contents by Mat Miller.
+- [Attention Is All You Need](https://arxiv.org/abs/1706.03762)The original paper of Transformer architecture.
++ [nanoGPT](https://github.com/karpathy/nanoGPT)Andrej Karpathy's famous video tutorial on how to build a GPT model from scratch.
+* [Transformers from Scratch](https://blog.matdmiller.com/posts/2023-06-10_transformers/notebook.html)A clear and easy implementation of Andrej's video contents by Mat Miller.
