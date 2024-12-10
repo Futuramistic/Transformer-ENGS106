@@ -1,6 +1,8 @@
 import torch
-from torch.utils.data import Dataset
+from torch.utils.data import Dataset, DataLoader
 import numpy as np
+import os
+import pickle
 
 class TokenDataset(Dataset):
     def __init__(self, data, context_length, device):
@@ -15,3 +17,26 @@ class TokenDataset(Dataset):
         x = torch.from_numpy((self.data[idx:idx+self.context_length]).astype(np.int64)).to(self.device)
         y = torch.from_numpy((self.data[idx+1:idx+1+self.context_length]).astype(np.int64)).to(self.device)
         return x, y
+    
+def getData(data_dir, model_config, train_config):
+    test_data = np.memmap(os.path.join(data_dir,'val.bin'), dtype=np.uint16, mode='r')
+    train_data = np.memmap(os.path.join(data_dir,'train.bin'), dtype=np.uint16, mode='r')
+    train_dataset = TokenDataset(train_data,model_config.context_length,train_config.device)
+    test_dataset = TokenDataset(test_data,model_config.context_length,train_config.device)
+    train_dataloader = DataLoader(train_dataset, batch_size=train_config.batch_size, shuffle=True)
+    test_dataloader = DataLoader(test_dataset, batch_size=train_config.batch_size, shuffle=True)
+    return train_dataloader, test_dataloader
+
+def getBatch(split: str, train_dataloader:DataLoader, test_dataloader:DataLoader):
+    data = train_dataloader if split == 'train' else test_dataloader
+    x,y = next(iter(data))
+    return x, y
+
+def getVocabSize(data_dir:str) -> int:
+    meta_path = os.path.join(data_dir, 'meta.pkl')
+    meta_vocab_size = 50304
+    if os.path.exists(meta_path):
+        with open(meta_path, 'rb') as f:
+            meta = pickle.load(f)
+        meta_vocab_size = meta['vocab_size']
+    return meta_vocab_size
