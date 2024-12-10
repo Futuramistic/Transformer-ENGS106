@@ -5,20 +5,28 @@ import math
 import torch
 import torch.nn as nn
 from torch.nn import functional as F
-import tiktoken
+
+class ModelConfig:
+    context_length: int = 256
+    vocab_size: int = -1
+    n_layer: int = 6
+    n_head: int = 6
+    n_embd: int = 384
+    dropout: float = 0.2
+    bias: bool = False
+    compile: bool = True
+    attn_dim: int = n_embd//n_head
 
 
 # Define feed forward network
 class FeedForwardNetwork(nn.Module):
-    def __init__(self, d_model, dropout):
+    def __init__(self, config:ModelConfig):
         super().__init__()
-        self.d_model = d_model
-        self.dropout = dropout
         self.ffn = nn.Sequential(
-            nn.Linear(self.d_model, self.d_model * 4),
+            nn.Linear(config.n_embd, config.n_embd * 4),
             nn.ReLU(),
-            nn.Linear(self.d_model * 4, self.d_model),
-            nn.Dropout(self.dropout)
+            nn.Linear(config.n_embd * 4, config.n_embd),
+            nn.Dropout(config.dropout)
         )
 
     def forward(self, x):
@@ -27,46 +35,38 @@ class FeedForwardNetwork(nn.Module):
 
 # Define Scaled Dot Product Attention
 class Attention(nn.Module):
-    def __init__(self, d_model, head_size, context_length, dropout):
+    def __init__(self, config:ModelConfig):
         super().__init__()
-        self.d_model = d_model
-        self.head_size = head_size
-        self.context_length = context_length
-        self.dropout = dropout
-        self.Wq = nn.Linear(self.d_model, self.head_size, bias=False)
-        self.Wk = nn.Linear(self.d_model, self.head_size, bias=False)
-        self.Wv = nn.Linear(self.d_model, self.head_size, bias=False)
-        self.register_buffer('mask', torch.tril(torch.ones(self.context_length, self.context_length)))
-        self.dropout = nn.Dropout(self.dropout)
+        self.Wq = nn.Linear(config.n_embd, config.attn_dim, bias=config.bias)
+        self.Wk = nn.Linear(config.n_embd, config.attn_dim, bias=config.bias)
+        self.Wv = nn.Linear(config.n_embd, config.attn_dim, bias=config.bias)
+        self.dropout = nn.Dropout(config.dropout)
+        self.register_buffer("mask", torch.tril(torch.ones(config.context_length, config.context_length, requires_grad=False)))
 
     def forward(self, x):
         B, T, C = x.shape
         q = self.Wq(x)
         k = self.Wk(x)
         v = self.Wv(x)
-
-        weights = (q @ k.transpose(-2, -1)) / math.sqrt(self.head_size)
-        weights = weights.masked_fill(self.mask[:T, :T] == 0, float('-inf'))
+        return self.attention(q,k,v,T)
+    
+    def attention(self,q,k,v,T):
+        dk = k.size(-1)
+        weights = (q @ k.mT) / math.sqrt(dk)
+        weights = weights.masked_fill(self.mask[:T,:T] == 0, float('-inf'))
         weights = F.softmax(weights, dim=-1)
         weights = self.dropout(weights)
-
-        output = weights @ v
-
-        return output
+        return weights@v
 
 
 # Define Multi-head Attention ｜
 class MultiHeadAttention(nn.Module):
-    def __init__(self, d_model, num_heads, head_size, context_length, dropout):
+    def __init__(self, config:ModelConfig):
         super().__init__()
-        self.d_model = d_model
-        self.num_heads = num_heads
-        self.head_size = head_size
-        self.context_length = context_length
-        self.dropout = dropout
-        self.heads = nn.ModuleList([Attention(self.d_model, self.head_size, self.context_length, self.dropout) for _ in range(self.num_heads)])
-        self.projection_layer = nn.Linear(self.d_model, self.d_model)
-        self.dropout = nn.Dropout(self.dropout)
+        self.config = config
+        self.heads = nn.ModuleList([Attention(config) for _ in range(self.config.n_head)])
+        self.projection_layer = nn.Linear(self.config.n_embd, self.config.n_embd)
+        self.dropout = nn.Dropout(self.config.dropout)
 
     def forward(self, x):
         head_outputs = [head(x) for head in self.heads]
@@ -77,62 +77,55 @@ class MultiHeadAttention(nn.Module):
 
 # Define Transformer Block ｜
 class TransformerBlock(nn.Module):
-    def __init__(self, d_model, num_heads, head_size, context_length, dropout):
+    def __init__(self, config:ModelConfig):
         super().__init__()
-        self.ln1 = nn.LayerNorm(d_model)
-        self.ln2 = nn.LayerNorm(d_model)
-        self.mha = MultiHeadAttention(d_model, num_heads, head_size, context_length, dropout)
-        self.ffn = FeedForwardNetwork(d_model, dropout)
+        self.ln1 = nn.LayerNorm(config.n_embd)
+        self.ln2 = nn.LayerNorm(config.n_embd)
+        self.mha = MultiHeadAttention(config)
+        self.ffn = FeedForwardNetwork(config)
 
     def forward(self, x):
         x = x + self.mha(self.ln1(x))
         x = x + self.ffn(self.ln2(x))
         return x
+    
+class PositionalEncoding(nn.Module):
+
+    def __init__(self, config:ModelConfig):
+        super().__init__()
+        position = torch.arange(0, config.context_length, requires_grad=False).unsqueeze(1)
+        div_term = torch.exp(torch.arange(0, config.n_embd, 2) * (-math.log(10000.0) / config.n_embd))
+        pe = torch.zeros(config.context_length, config.n_embd, requires_grad=False)
+        pe[:, 0::2] = torch.sin(position * div_term)
+        pe[:, 1::2] = torch.cos(position * div_term)
+        self.register_buffer('pe', pe)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        return self.pe[:x.size(1),:]
 
 
 # Define the model ｜
 class Model(nn.Module):
-    def __init__(self, h_params):
+    def __init__(self, config:ModelConfig):
         super().__init__()
-        self.context_length = h_params['context_length']
-        self.d_model = h_params['d_model']
-        self.learning_rate = h_params['learning_rate']
-        self.num_blocks = h_params['num_blocks']
-        self.num_heads = h_params['num_heads']
-        self.head_size = self.d_model // self.num_heads
-        self.dropout = h_params['dropout']
-        self.device = h_params['device']
-        self.max_token_value = h_params['max_token_value']
-
-        self.token_embedding_lookup_table = nn.Embedding(self.max_token_value, self.d_model)
+        self.tok_embedding = nn.Embedding(config.vocab_size, config.n_embd)
+        self.pos_embedding = PositionalEncoding(config)
         self.transformer_blocks = nn.Sequential(*(
-                [TransformerBlock(self.d_model, self.num_heads, self.head_size, self.context_length, self.dropout) for _ in range(self.num_blocks)] +
-                [nn.LayerNorm(self.d_model)]
+                [TransformerBlock(config) for _ in range(config.n_layer)] +
+                [nn.LayerNorm(config.n_embd)]
         ))
-        self.model_out_linear_layer = nn.Linear(self.d_model, self.max_token_value)
+        self.model_out_linear_layer = nn.Linear(config.n_embd, config.vocab_size)
+        self.drop = nn.Dropout(config.dropout)
+        self.context_length = config.context_length
 
-    def forward(self, idx, targets=None):
-        B, T = idx.shape
-        position_encoding_lookup_table = torch.zeros(self.context_length, self.d_model, device=self.device)
-        position = torch.arange(0, self.context_length, dtype=torch.float).unsqueeze(1)
-        div_term = torch.exp(torch.arange(0, self.d_model, 2).float() * (-math.log(10000.0) / self.d_model))
-        position_encoding_lookup_table[:, 0::2] = torch.sin(position * div_term)
-        position_encoding_lookup_table[:, 1::2] = torch.cos(position * div_term)
-        # change position_encoding_lookup_table from (context_length, d_model) to (T, d_model) | 将position_encoding_lookup_table从(context_length, d_model)更改为(T, d_model)
-        position_embedding = position_encoding_lookup_table[:T, :].to(self.device)
-        x = self.token_embedding_lookup_table(idx) + position_embedding
-        x = self.transformer_blocks(x)
-        # get the final logits |
+    def forward(self, idx:torch.Tensor):
+        _, T = idx.shape
+        pos_emb = self.pos_embedding(idx)
+        tok_emb = self.tok_embedding(idx)
+
+        x = self.transformer_blocks(self.drop(tok_emb+pos_emb))
         logits = self.model_out_linear_layer(x)
-
-        if targets is not None:
-            B, T, C = logits.shape
-            logits_reshaped = logits.view(B * T, C) # reshape logits to (B*T, C) | 将logits重塑为(B*T, C)
-            targets_reshaped = targets.view(B * T) # reshape targets to (B*T) | 将targets重塑为(B*T)
-            loss = F.cross_entropy(input=logits_reshaped, target=targets_reshaped) # calculate the loss | 计算损失
-        else:
-            loss = None
-        return logits, loss
+        return logits
 
     def generate(self, idx, max_new_tokens=100, temperature=1.0, top_k=None):
         # idx is (B,T) array of indices in the current context |
@@ -140,7 +133,7 @@ class Model(nn.Module):
             # Crop idx to the max size of our positional embeddings table |
             idx_crop = idx[:, -self.context_length:]
             # Get predictions |
-            logits, loss = self.forward(idx_crop)
+            logits = self.forward(idx_crop)
             # Get the last time step from logits where the dimensions of the logits are (B,T,C) |
             logits = logits[:, -1, :] / temperature # Divide by temperature |
             # optionally crop the logits to only the top k options |

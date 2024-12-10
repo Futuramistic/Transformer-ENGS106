@@ -3,79 +3,60 @@ Train a model
 """
 import os
 import torch
-import tiktoken
-from model import Model
-import wandb
+from model import Model, ModelConfig
+import tqdm
+from torch.nn import functional as F
+from dataset import TokenDataset
+from torch.utils.data import DataLoader
+import numpy as np
+import pickle
+from contextlib import nullcontext
 
-# Set GPU max allocation size to 512MB ｜
-os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "max_split_size_mb:512"
-torch.cuda.empty_cache()  # empty cache if necessary ｜
+class TrainConfig:
+    batch_size: int = 64  # How many batches per training step ｜
+    max_iters: int = 2000  # Total of training iterations ｜
+    learning_rate: float=1e-3 # Learning rate ｜
+    grad_clip: float=1.0
+    eval_interval: int=50  # How often to evaluate the model ｜
+    eval_iters: int=10 # Number of iterations to average for evaluation ｜
+    seed: int=1337
 
-# Hyperparameters
-h_params = {
-    "d_model": 1024,  # Define our model dimension architecture ｜
-    "batch_size": 4,  # How many batches per training step ｜
-    "context_length": 16,  # Length of the token chunk each batch will receive ｜
-    "num_blocks": 8,  # Number of transformer blocks ｜
-    "num_heads": 4,  # Number of heads in Multi-head attention ｜
-    "dropout": 0.1,  # Dropout rate ｜
-    "max_iters": 2000,  # Total of training iterations ｜
-    "learning_rate": 1e-3, # Learning rate ｜
-    "eval_interval": 50,  # How often to evaluate the model ｜
-    "eval_iters": 10,  # Number of iterations to average for evaluation ｜
-    "device": 'cuda' if torch.cuda.is_available() else 'cpu',  # Use GPU if it's available. ｜
-    "epochs": 1,
-    "TORCH_SEED": 1337
-}
-torch.manual_seed(h_params["TORCH_SEED"])
+model_config = ModelConfig()
+train_config = TrainConfig()
 
-# WandB Tracking https://wandb.ai/
-# run = wandb.init(
-#     project="LLMZhang_lesson_2",
-#     # Track hyperparameters and run metadata
-#     config={
-#         "d_model": h_params["d_model"],
-#         "batch_size": h_params["batch_size"],
-#         "context_length": h_params["context_length"],
-#         "max_iters": h_params["max_iters"],
-#         "learning_rate": h_params["learning_rate"],
-#         "epochs": h_params["epochs"],
-#     },
-# )
+dtype =  'bfloat16' if torch.cuda.is_available() and torch.cuda.is_bf16_supported() else 'float16'
+device = 'cuda' if torch.cuda.is_available() else 'cpu'
+torch.manual_seed(train_config.seed)
+torch.backends.cuda.matmul.allow_tf32 = True # allow tf32 on matmul
+torch.backends.cudnn.allow_tf32 = True # allow tf32 on cudnn
+ptdtype = {'float32': torch.float32, 'bfloat16': torch.bfloat16, 'float16': torch.float16}[dtype]
+ctx = nullcontext() if device == 'cpu' else torch.amp.autocast(device_type=device, dtype=ptdtype)
 
+data_dir = os.path.join('data', 'Shakespeare')
+meta_path = os.path.join(data_dir, 'meta.pkl')
+meta_vocab_size = None
+if os.path.exists(meta_path):
+    with open(meta_path, 'rb') as f:
+        meta = pickle.load(f)
+    meta_vocab_size = meta['vocab_size']
+model_config.vocab_size = meta_vocab_size if meta_vocab_size is not None else 50304
 
-# Prepare Datasets ｜
-with open('data/hardware_prices.csv', 'r', encoding="utf-8") as file:
-    text = file.read()
-
-# Using TikToken (Same as GPT3) as tokenizer ｜
-tokenizer = tiktoken.get_encoding("cl100k_base")
-tokenized_text = tokenizer.encode(text)
-max_token_value = max(tokenized_text)+1  # the maximum value of the tokenized numbers
-h_params['max_token_value'] = max_token_value # push max_token_value to hyperparameters for model initialization
-tokenized_text = torch.tensor(tokenized_text, dtype=torch.long, device=h_params['device'])
-
-total_tokens = tokenizer.encode_ordinary(text)
-print(f"Total: {len(total_tokens):,} tokens")
-
-
-# Split train and validation data ｜
-train_size = int(len(tokenized_text) * 0.9)
-train_data = tokenized_text[:train_size]
-val_data = tokenized_text[train_size:]
+test_data = np.memmap(os.path.join(data_dir,'val.bin'), dtype=np.uint16, mode='r')
+train_data = np.memmap(os.path.join(data_dir,'train.bin'), dtype=np.uint16, mode='r')
+train_dataset = TokenDataset(train_data,model_config.context_length,device)
+test_dataset = TokenDataset(test_data,model_config.context_length,device)
+train_dataloader = DataLoader(train_dataset, batch_size=train_config.batch_size, shuffle=True)
+test_dataloader = DataLoader(test_dataset, batch_size=train_config.batch_size, shuffle=True)
 
 # Initialize the model ｜
-model = Model(h_params).to(h_params['device'])
-
-# WandB LogMagic ｜ WandB
-# wandb.watch(model, log_freq=100)
+model = Model(model_config).to(device)
+if model_config.compile:
+    model = torch.compile(model)
 
 # get batch data ｜
 def get_batch(split: str):
-    data = train_data if split == 'train' else val_data
-    idxs = torch.randint(low=0, high=len(data) - h_params['context_length'], size=(h_params['batch_size'],))
-    x = torch.stack([data[idx:idx + h_params['context_length']] for idx in idxs]).to(h_params['device'])
-    y = torch.stack([data[idx + 1:idx + h_params['context_length'] + 1] for idx in idxs]).to(h_params['device'])
+    data = train_dataloader if split == 'train' else test_dataloader
+    x,y = next(iter(data))
     return x, y
 
 # calculate the loss ｜
@@ -84,10 +65,12 @@ def estimate_loss():
     out = {}
     model.eval()
     for split in ['train', 'valid']:
-        losses = torch.zeros(h_params['eval_iters'])
-        for k in range(h_params['eval_iters']):
-            x_batch, y_batch = get_batch(split)
-            logits, loss = model(x_batch, y_batch)
+        losses = torch.zeros(train_config.eval_iters)
+        for k in range(train_config.eval_iters):
+            x_batch, targets = get_batch(split)
+            with ctx:
+                logits = model(x_batch)
+                loss = F.cross_entropy(logits.view(-1, logits.size(-1)), targets.view(-1), ignore_index=-1)
             losses[k] = loss.item()
         out[split] = losses.mean()
     model.train()
@@ -95,24 +78,26 @@ def estimate_loss():
 
 
 # Create the optimizer ｜
-optimizer = torch.optim.AdamW(model.parameters(), lr=h_params['learning_rate'])
-for step in range(h_params['max_iters']):
-    if step % h_params['eval_interval'] == 0 or step == h_params['max_iters'] - 1:
-        losses = estimate_loss()
-        print('Step:', step, 'Training Loss:', round(losses['train'].item(), 3), 'Validation Loss:', round(losses['valid'].item(), 3))
+optimizer = torch.optim.AdamW(model.parameters(), lr=train_config.learning_rate)
+scaler = torch.amp.GradScaler('cuda',enabled=(dtype == 'float16'))
 
-    xb, yb = get_batch('train')
-    logits, loss = model(xb, yb)
-    # Logging Trace ｜
-    # wandb.log({"train loss": round(losses['train'].item(), 3)})  # WandB validation loss tracking
-    # wandb.log({"valid loss": round(losses['valid'].item(), 3)})  # WandB validation loss tracking
-    # Backpropagation ｜
+for step in tqdm.tqdm(range(train_config.max_iters)):
+    if step % train_config.eval_interval == 0 or step == train_config.max_iters - 1:
+        losses = estimate_loss()
+        tqdm.tqdm.write(f'Step: {step} Training Loss: {round(losses['train'].item(), 3)} Validation Loss: {round(losses['valid'].item(), 3)}')
+    xb, targets = get_batch('train')
+    with ctx:
+        logits = model(xb)
+        loss = F.cross_entropy(logits.view(-1, logits.size(-1)), targets.view(-1), ignore_index=-1)
+    scaler.scale(loss).backward()
+    if train_config.grad_clip != 0.0:
+        scaler.unscale_(optimizer)
+        torch.nn.utils.clip_grad_norm_(model.parameters(), train_config.grad_clip)
+    scaler.step(optimizer)
+    scaler.update()
     optimizer.zero_grad(set_to_none=True)
-    loss.backward()
-    optimizer.step()
 
 # Save the model ｜
-torch.save({
-    'model_state_dict': model.state_dict(),
-    'h_params': h_params
-}, 'model/model.ckpt')
+torch.save(model.state_dict(), 'model/model.ckpt')
+with open('model/model_config.pkl','wb') as f:
+    pickle.dump(model_config, f)
